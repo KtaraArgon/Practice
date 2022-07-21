@@ -1,0 +1,126 @@
+import pydicom
+import numpy as np
+import matplotlib.pyplot as plt
+import sys
+import glob
+import os
+import cv2
+from pydicom.data import get_testdata_file
+from pydicom.fileset import FileSet
+from pydicom.uid import generate_uid
+import radiomics
+from SimpleITK import GetImageFromArray
+from radiomics.featureextractor import RadiomicsFeatureExtractor # This module is used for interaction with pyradiomic
+import logging
+logging.getLogger('radiomics').setLevel(logging.CRITICAL + 1)
+import pandas as pd
+
+#Подгрузка картинок
+src="C:/Users/PC acer/Desktop/Практика/native"
+dcm=[]
+for root, dirs, files in os.walk(src):
+  for file in files:
+    if ".dcm" in file:
+      dcm.append(pydicom.dcmread(os.path.join(root, file)))
+
+print (len(dcm))
+slices=[]
+skipcount = 0
+for f in dcm:
+    if hasattr(f, 'SliceLocation'):
+        slices.append(f)
+    else:
+        skipcount = skipcount + 1
+print("skipped, no SliceLocation: {}".format(skipcount))
+slices = sorted(slices, key=lambda s: s.SliceLocation)
+
+# pixel aspects, assuming all slices are the same
+ps = slices[0].PixelSpacing
+ss = slices[0].SliceThickness
+ax_aspect = ps[1]/ps[0]
+sag_aspect = ps[1]/ss
+cor_aspect = ss/ps[0]
+
+# create 3D array
+img_shape = list(slices[0].pixel_array.shape)
+img_shape.append(len(slices))
+img3d = np.zeros(img_shape)
+
+# fill 3D array with the images from the files
+for i, s in enumerate(slices):
+    img2d = s.pixel_array
+    img3d[:, :, i] = img2d
+    
+# plot 3 orthogonal slices
+a1 = plt.subplot(2, 2, 1)
+plt.imshow(img3d[:, :, img_shape[2]//2], cmap="gray")
+a1.set_aspect(ax_aspect)
+
+a2 = plt.subplot(2, 2, 2)
+plt.imshow(img3d[:, img_shape[1]//2, :], cmap="gray")
+a2.set_aspect(sag_aspect)
+
+a3 = plt.subplot(2, 2, 3)
+plt.imshow(img3d[img_shape[0]//2, :, :].T, cmap="gray")
+a3.set_aspect(cor_aspect)
+
+plt.show()
+
+#Подгрузка масок
+src="C:/Users/PC acer/Desktop/ScalarVolume_25"
+mask=[]
+for root, dirs, files in os.walk(src):
+  for file in files:
+    if ".dcm" in file:
+      mask.append(pydicom.dcmread(os.path.join(root, file)))
+
+print (len(mask))
+
+# pixel aspects, assuming all slices are the same
+ps = mask[0].PixelSpacing
+ss = mask[0].SliceThickness
+ax_aspect = ps[1]/ps[0]
+sag_aspect = ps[1]/ss
+cor_aspect = ss/ps[0]
+
+# create 3D array
+mask_shape = list(slices[0].pixel_array.shape)
+mask_shape.append(len(slices))
+mask3d = np.zeros(img_shape)
+
+# fill 3D array with the images from the files
+for i, s in enumerate(mask):
+    mask2d = s.pixel_array
+    mask3d[:, :, i] = mask2d
+    
+# plot 3 orthogonal slices
+a1 = plt.subplot(2, 2, 1)
+plt.imshow(mask3d[:, :, mask_shape[2]//2], cmap="gray")
+a1.set_aspect(ax_aspect)
+
+a2 = plt.subplot(2, 2, 2)
+plt.imshow(mask3d[:, mask_shape[1]//2, :], cmap="gray")
+a2.set_aspect(sag_aspect)
+
+a3 = plt.subplot(2, 2, 3)
+plt.imshow(mask3d[mask_shape[0]//2, :, :].T,cmap="gray")
+a3.set_aspect(cor_aspect)
+
+plt.show()
+
+tmr3d=img3d*mask3d
+# Instantiate the extractor
+texture_extractor = RadiomicsFeatureExtractor(verbose=False)
+texture_extractor.disableAllFeatures()
+_text_feat = {ckey: [] for ckey in texture_extractor.featureClassNames}
+texture_extractor.enableFeaturesByName(**_text_feat)
+
+print('Extraction parameters:\n\t', texture_extractor.settings)
+print('Enabled filters:\n\t', texture_extractor.enabledImagetypes) 
+print('Enabled features:\n\t', texture_extractor.enabledFeatures) 
+
+results = texture_extractor.execute(GetImageFromArray(tmr3d),
+                            GetImageFromArray((tmr3d>0).astype(np.uint8)))
+results
+
+#сделано без вывода конкретных строк для удобства чтения, можно добавить, если необходимо
