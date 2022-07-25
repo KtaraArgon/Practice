@@ -1,0 +1,143 @@
+#библиотеки
+import pydicom
+import numpy as np
+import matplotlib.pyplot as plt
+import sys
+import glob
+import os
+import cv2
+from pydicom.data import get_testdata_file
+from pydicom.fileset import FileSet
+from pydicom.uid import generate_uid
+import radiomics
+from SimpleITK import GetImageFromArray
+from radiomics.featureextractor import RadiomicsFeatureExtractor # This module is used for interaction with pyradiomic
+import logging
+logging.getLogger('radiomics').setLevel(logging.CRITICAL + 1)
+import pandas as pd
+
+#Подгрузка картинок
+src="C:/Users/PC acer/Desktop/Практика/native"
+dcm=[]
+for root, dirs, files in os.walk(src):
+  for file in files:
+    if ".dcm" in file:
+      dcm.append(pydicom.dcmread(os.path.join(root, file)))
+
+print (len(dcm))
+slices=[]
+skipcount = 0
+for f in dcm:
+    if hasattr(f, 'SliceLocation'):
+        slices.append(f)
+    else:
+        skipcount = skipcount + 1
+
+print("skipped, no SliceLocation: {}".format(skipcount))
+slices = sorted(slices, key=lambda s: s.SliceLocation)
+
+# pixel aspects, assuming all slices are the same
+ps = slices[0].PixelSpacing
+ss = slices[0].SliceThickness
+ax_aspect = ps[1]/ps[0]
+sag_aspect = ps[1]/ss
+cor_aspect = ss/ps[0]
+
+# create 3D array
+img_shape = list(slices[0].pixel_array.shape)
+img_shape.append(len(slices))
+img3d = np.zeros(img_shape)
+
+# fill 3D array with the images from the files
+for i, s in enumerate(slices):
+    img2d = s.pixel_array
+    img3d[:, :, i] = img2d
+    
+# plot 3 orthogonal slices
+a1 = plt.subplot(2, 2, 1)
+plt.imshow(img3d[:, :, img_shape[2]//2], cmap="gray")
+a1.set_aspect(ax_aspect)
+
+a2 = plt.subplot(2, 2, 2)
+plt.imshow(img3d[:, img_shape[1]//2, :], cmap="gray")
+a2.set_aspect(sag_aspect)
+
+a3 = plt.subplot(2, 2, 3)
+plt.imshow(img3d[img_shape[0]//2, :, :].T, cmap="gray")
+a3.set_aspect(cor_aspect)
+
+plt.show()
+
+#Подгрузка масок
+src="C:/Users/PC acer/Desktop/ScalarVolume_25"
+mask=[]
+for root, dirs, files in os.walk(src):
+  for file in files:
+    if ".dcm" in file:
+      mask.append(pydicom.dcmread(os.path.join(root, file)))
+
+print (len(mask))
+
+# pixel aspects, assuming all slices are the same
+ps = mask[0].PixelSpacing
+ss = mask[0].SliceThickness
+ax_aspect = ps[1]/ps[0]
+sag_aspect = ps[1]/ss
+cor_aspect = ss/ps[0]
+
+# create 3D array
+mask_shape = list(slices[0].pixel_array.shape)
+mask_shape.append(len(slices))
+mask3d = np.zeros(img_shape)
+
+# fill 3D array with the images from the files
+for i, s in enumerate(mask):
+    mask2d = s.pixel_array
+    mask3d[:, :, i] = mask2d
+    
+# plot 3 orthogonal slices
+a1 = plt.subplot(2, 2, 1)
+plt.imshow(mask3d[:, :, mask_shape[2]//2], cmap="gray")
+a1.set_aspect(ax_aspect)
+
+a2 = plt.subplot(2, 2, 2)
+plt.imshow(mask3d[:, mask_shape[1]//2, :], cmap="gray")
+a2.set_aspect(sag_aspect)
+
+a3 = plt.subplot(2, 2, 3)
+plt.imshow(mask3d[mask_shape[0]//2, :, :].T,cmap="gray")
+a3.set_aspect(cor_aspect)
+
+plt.show()
+
+tmr3d=img3d*mask3d
+print(tmr3d)
+
+z=[]
+y=[]
+x=[]
+for i in range(tmr3d.shape[2]):
+  c=np.count_nonzero(tmr3d[:,:,i]!=0)
+  z.append(c)
+axial = len([item for item in z if item !=0])
+print (axial*ss)
+
+for i in range(tmr3d.shape[1]):
+  b=np.count_nonzero(tmr3d[:,i,:]!=0)
+  y.append(b)
+saggital = len([item for item in y if item !=0])
+print (saggital*ps[1])
+
+for i in range(tmr3d.shape[0]):
+  a=np.count_nonzero(tmr3d[i,:,:]!=0)
+  x.append(a)
+coronal = len([item for item in x if item !=0])
+print (coronal*ps[0])
+
+tr3d=tmr3d[np.nonzero(tmr3d)]-1024
+np.unique(tr3d)
+
+np.min(tr3d)
+np.mean(tr3d)
+np.median(tr3d)
+np.std(tr3d)
